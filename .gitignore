@@ -46,3 +46,6 @@ models/*.safetensors
 # Test outputs
 *.csv
 output/
+
+# Superpowers submodule
+.agent/skills/superpowers/.git/
