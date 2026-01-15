@@ -174,6 +174,18 @@ class SuperEliteMainWindow(QMainWindow):
         header_layout.setContentsMargins(0, 0, 0, 0)
         header_layout.setSpacing(16)
         
+        # 应用图标
+        icon_path = os.path.join(os.path.dirname(__file__), "..", "img", "icon.png")
+        if os.path.exists(icon_path):
+            from PySide6.QtGui import QPixmap
+            icon_label = QLabel()
+            pixmap = QPixmap(icon_path)
+            # 缩放到 64x64
+            scaled_pixmap = pixmap.scaled(64, 64, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+            icon_label.setPixmap(scaled_pixmap)
+            icon_label.setFixedSize(64, 64)
+            header_layout.addWidget(icon_label)
+        
         # 品牌名
         brand_layout = QVBoxLayout()
         brand_layout.setSpacing(4)
@@ -620,6 +632,23 @@ class SuperEliteMainWindow(QMainWindow):
             count = summary['by_rating'].get(star, 0)
             bar = "█" * min(count, 30)
             self._log("default", f"   {"★" * star}{"☆" * (5-star)}: {count:3d} {bar}")
+        
+        # 播放系统提示音
+        import subprocess
+        subprocess.run(['afplay', '/System/Library/Sounds/Glass.aiff'], check=False)
+        
+        # 弹窗询问是否打开目录
+        dir_path = self.dir_input.text().strip()
+        result = StyledMessageBox.question(
+            self,
+            "处理完成",
+            f"已完成 {summary['success']} 张图片的评分处理。\n\n"
+            f"是否打开结果目录？"
+        )
+        
+        if result == StyledMessageBox.Yes:
+            # 用 Finder 打开目录
+            subprocess.run(['open', dir_path], check=False)
     
     def _on_error(self, error_message: str):
         """错误处理"""
