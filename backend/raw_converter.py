@@ -32,7 +32,7 @@ def raw_to_jpeg(raw_file_path: str, jpg_file_path: str = None) -> str:
         base_name = os.path.splitext(os.path.basename(raw_file_path))[0]
         jpg_file_path = os.path.join(
             tempfile.gettempdir(),
-            f'jamesalign_{base_name}.jpg'
+            f'_tmp_superelite_{base_name}.jpg'  # 明显的临时文件前缀
         )
 
     try:

@@ -146,6 +146,127 @@ class ExifWriter:
         except (subprocess.TimeoutExpired, Exception):
             return False
 
+    def write_full_scoring_metadata(
+        self,
+        file_path: str,
+        quality_score: float,
+        aesthetic_score: float,
+        total_score: float,
+        rating: int
+    ) -> bool:
+        """
+        写入完整评分元数据到图片文件
+
+        字段映射:
+        - 质量分 → IPTC:City (城市)
+        - 美学分 → IPTC:Province-State (省/州)
+        - 总分 → IPTC:Country-PrimaryLocationName (国家)
+        - 星级 → XMP:Rating
+
+        Args:
+            file_path: 图片文件路径
+            quality_score: 质量分 (0-100)
+            aesthetic_score: 美学分 (0-100)
+            total_score: 综合分 (0-100)
+            rating: 星级评分 (0-5)
+
+        Returns:
+            True 如果写入成功，否则 False
+        """
+        if not os.path.exists(file_path):
+            raise FileNotFoundError(f"文件不存在: {file_path}")
+
+        # 格式化评分为固定宽度字符串
+        quality_str = f'{quality_score:05.1f}'
+        aesthetic_str = f'{aesthetic_score:05.1f}'
+        total_str = f'{total_score:05.1f}'
+        rating = max(0, min(5, int(rating)))
+
+        cmd = [
+            self.exiftool_path,
+            f'-IPTC:City={quality_str}',                    # 质量分 → 城市
+            f'-IPTC:Province-State={aesthetic_str}',        # 美学分 → 省份
+            f'-IPTC:Country-PrimaryLocationName={total_str}',  # 总分 → 国家
+            f'-XMP:Rating={rating}',                        # 星级
+            '-overwrite_original',
+            '-m',
+            '-ignoreMinorErrors',
+            file_path
+        ]
+
+        try:
+            result = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                timeout=30
+            )
+
+            if result.returncode != 0:
+                stderr_lower = result.stderr.lower()
+                if 'warning' in stderr_lower or 'minor' in stderr_lower:
+                    return True
+                return False
+
+            return True
+
+        except (subprocess.TimeoutExpired, Exception):
+            return False
+
+    def reset_metadata(self, file_path: str) -> bool:
+        """
+        重置/清除 SuperElite 写入的所有元数据
+
+        清除:
+        - XMP:Rating (星级)
+        - XMP:Label (色标)
+        - XMP:PickLabel (旗标)
+        - IPTC:Country-PrimaryLocationName (国家/AI评分)
+        - IPTC:Province-State (省份)
+        - IPTC:City (城市)
+
+        Args:
+            file_path: 图片文件路径
+
+        Returns:
+            True 如果重置成功，否则 False
+        """
+        if not os.path.exists(file_path):
+            raise FileNotFoundError(f"文件不存在: {file_path}")
+
+        cmd = [
+            self.exiftool_path,
+            '-XMP:Rating=',                         # 清空星级
+            '-XMP:Label=',                          # 清空色标
+            '-XMP:PickLabel=',                      # 清空旗标
+            '-IPTC:Country-PrimaryLocationName=',   # 清空国家
+            '-IPTC:Province-State=',                # 清空省份
+            '-IPTC:City=',                          # 清空城市
+            '-overwrite_original',
+            '-m',
+            '-ignoreMinorErrors',
+            file_path
+        ]
+
+        try:
+            result = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                timeout=30
+            )
+
+            if result.returncode != 0:
+                stderr_lower = result.stderr.lower()
+                if 'warning' in stderr_lower or 'minor' in stderr_lower:
+                    return True
+                return False
+
+            return True
+
+        except (subprocess.TimeoutExpired, Exception):
+            return False
+
     def write_score_and_rating(
         self,
         raw_file_path: str,

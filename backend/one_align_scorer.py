@@ -51,28 +51,40 @@ class OneAlignScorer:
         """
         修复 LlamaRotaryEmbedding 与 transformers 4.40+ 的兼容性问题
 
-        transformers 4.40+ 移除了 seq_len 参数，改用 position_ids 的 shape 推断
-        但 One-Align 模型的代码仍然使用旧版 API，需要打补丁
+        transformers 4.40+ 可能有不同的 API：
+        - 旧版: forward(self, x, seq_len=None)
+        - 某些版本: forward(self, x, position_ids=None)
+        
+        One-Align 模型内部可能使用不同的调用方式，需要适配
         """
         try:
             from transformers.models.llama.modeling_llama import LlamaRotaryEmbedding
+            import inspect
+
+            # 检查原始 forward 的签名
+            sig = inspect.signature(LlamaRotaryEmbedding.forward)
+            params = list(sig.parameters.keys())
 
             # 保存原始的 forward 方法
             original_forward = LlamaRotaryEmbedding.forward
 
-            def patched_forward(self, x, position_ids=None, seq_len=None):
-                """兼容新旧两种 API"""
-                # 如果传入了 seq_len（旧 API），忽略它
-                # 新版 API 从 position_ids 的 shape 推断 seq_len
-                if seq_len is not None and position_ids is None:
-                    # 旧版调用：只有 seq_len，构造 position_ids
-                    batch_size = x.shape[0]
-                    device = x.device
-                    position_ids = torch.arange(seq_len, dtype=torch.long, device=device)
-                    position_ids = position_ids.unsqueeze(0).expand(batch_size, -1)
-
-                # 调用原始方法（只传 x 和 position_ids）
-                return original_forward(self, x, position_ids=position_ids)
+            if 'position_ids' in params:
+                # 新版 API：接受 position_ids
+                def patched_forward(self, x, position_ids=None, seq_len=None):
+                    """兼容：如果传入 seq_len，转换为 position_ids"""
+                    if seq_len is not None and position_ids is None:
+                        batch_size = x.shape[0]
+                        device = x.device
+                        position_ids = torch.arange(seq_len, dtype=torch.long, device=device)
+                        position_ids = position_ids.unsqueeze(0).expand(batch_size, -1)
+                    return original_forward(self, x, position_ids=position_ids)
+            else:
+                # 当前版本 API：只接受 seq_len
+                def patched_forward(self, x, position_ids=None, seq_len=None):
+                    """兼容：如果传入 position_ids，转换为 seq_len"""
+                    if seq_len is None and position_ids is not None:
+                        seq_len = position_ids.shape[-1]
+                    return original_forward(self, x, seq_len=seq_len)
 
             # 应用补丁
             LlamaRotaryEmbedding.forward = patched_forward
@@ -227,16 +239,17 @@ class OneAlignScorer:
         Returns:
             (rating, pick_flag, color_label)
 
-        默认阈值设计（基于实际照片分布优化）：
-        - 4星 (≥78): 顶级照片，约占10-15%
-        - 3星 (≥72): 优秀照片，约占20-25%
-        - 2星 (≥66): 中等照片，约占30-40% (大部分照片)
-        - 1星 (≥58): 较差照片，约占15-20%
-        - 0星 (<58): 明显质量不佳，约占10-15%，标记为 rejected
+        新阈值设计（0-4星，5星留给用户手动评级）：
+        - 4星 (≥78): AI最高评价，顶级照片，约包10-15%
+        - 3星 (≥72): 优秀照片，约包20-25%
+        - 2星 (≥66): 中等照片，约包30-40% (大部分照片)
+        - 1星 (≥58): 较低质量，约包15-20%
+        - 0星 (<58): 质量最低，但保留，约包10-15%
 
         标签策略：
-        - 只给 0 星照片标记 "rejected"
-        - 其他星级不使用 picked 标签和颜色标签
+        - 不使用 rejected 标记（所有照片都保留）
+        - 不使用 picked 标签和颜色标签
+        - 5星保留给用户手动评级
         """
         t4, t3, t2, t1 = _thresholds
         
@@ -249,7 +262,7 @@ class OneAlignScorer:
         elif total_score >= t1:
             return 1, "", ""
         else:
-            return 0, "rejected", ""
+            return 0, "", ""  # 0星：质量最低，但不删除
 
     def warmup(self):
         """预热模型"""

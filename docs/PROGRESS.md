@@ -1,7 +1,7 @@
 # SuperElite 开发进度
 
-**最后更新**: 2026-01-15 15:16  
-**当前版本**: v1.0 (commit: 807d2aa)
+**最后更新**: 2026-01-15 17:55  
+**当前版本**: v1.1
 
 ---
 
@@ -23,6 +23,19 @@
 - [x] `--csv <文件>` - CSV 导出
 - [x] `--check-hardware` - 硬件检测
 
+### 日志功能 (NEW)
+- [x] `--log` - 自动生成日志文件 (~/.superelite/logs/)
+- [x] `--log <路径>` - 指定日志文件路径
+- [x] `--verbose` - 详细输出模式
+- [x] `--quiet / -q` - 安静模式 (只输出错误和最终结果)
+
+### 预设功能 (NEW)
+- [x] `--preset <名称>` - 使用预设配置
+- [x] `--save-preset <名称>` - 保存当前配置为预设
+- [x] `--list-presets` - 列出所有可用预设
+- [x] 内置预设: default, strict, relaxed
+- [x] 用户预设: user (~/.superelite/presets/)
+
 ### 自动校准功能
 - [x] 百分位阈值计算 (P80/P60/P40/P20)
 - [x] 交互式确认 [Y/N/C]
@@ -33,18 +46,24 @@
 
 ## 待开发功能 📋
 
-### 优先级高
-- [ ] `--workers N` - 多线程并行处理
+### CLI 增强
+- [ ] 进度保存/中断恢复 - 处理大量照片时可断点续传
+- [ ] `--recursive` - 递归扫描子目录
+- [ ] `--exclude` - 排除模式匹配
+- [ ] `--min-score` / `--max-score` - 只处理特定分数范围
 
-### 优先级中
-- [ ] 进度保存/中断恢复
-- [ ] GUI 启动器
+### GUI 应用
+- [x] SuperElite GUI - PySide6 桌面应用 (基础完成)
+- [x] 后台评分线程 (ScoringWorker)
+- [x] 实时进度更新
+- [x] 日志输出
+- [ ] 预览缩略图
+- [ ] 设置面板
 
-### 优先级低
-- [ ] 批量预设配置文件
-- [ ] Lightroom 插件集成
-
----
+### Lightroom 集成 (Phase 2)
+- [ ] Lightroom Plugin
+- [ ] Co-Instruct 按需分析
+- [ ] 关键字/描述生成
 
 ## 技术栈
 

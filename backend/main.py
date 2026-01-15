@@ -18,6 +18,8 @@ from tqdm import tqdm
 from one_align_scorer import get_one_align_scorer, set_thresholds
 from exif_writer import get_exif_writer
 from raw_converter import is_raw_file, raw_to_jpeg
+from logger import get_logger, setup_logging
+from preset_manager import get_preset_manager, Preset
 
 # 版本信息
 VERSION = "1.0"
@@ -443,8 +445,8 @@ def main():
     parser.add_argument("--version", "-v", action="store_true", help="显示版本号")
     parser.add_argument("--dir", type=str, help="输入目录 (RAW/JPEG)")
     parser.add_argument("--output", type=str, help="输出目录 (分星级)")
-    parser.add_argument("--quality-weight", type=float, default=0.4, help="质量权重 (默认 0.4)")
-    parser.add_argument("--aesthetic-weight", type=float, default=0.6, help="美学权重 (默认 0.6)")
+    parser.add_argument("--quality-weight", type=float, default=None, help="质量权重 (默认 0.4)")
+    parser.add_argument("--aesthetic-weight", type=float, default=None, help="美学权重 (默认 0.6)")
     parser.add_argument(
         "--thresholds", type=str, 
         help='自定义星级阈值，格式: "78,72,66,58" (4星,3星,2星,1星)'
@@ -457,6 +459,19 @@ def main():
     parser.add_argument("--write-xmp", action="store_true", help="写入 XMP 元数据")
     parser.add_argument("--csv", type=str, help="导出 CSV 报告路径")
     parser.add_argument("--check-hardware", action="store_true", help="仅检测硬件")
+    
+    # 日志功能
+    parser.add_argument(
+        "--log", nargs="?", const="", default=None,
+        help="保存日志到文件 (不指定路径则自动生成)"
+    )
+    parser.add_argument("--verbose", action="store_true", help="详细输出模式")
+    parser.add_argument("--quiet", "-q", action="store_true", help="安静模式 (只输出错误和最终结果)")
+    
+    # 预设功能
+    parser.add_argument("--preset", type=str, help="使用预设 (default/strict/relaxed/user)")
+    parser.add_argument("--save-preset", type=str, metavar="NAME", help="保存当前配置为预设")
+    parser.add_argument("--list-presets", action="store_true", help="列出所有可用预设")
 
     args = parser.parse_args()
 
@@ -465,12 +480,61 @@ def main():
         print_version()
         sys.exit(0)
 
+    # 列出预设
+    if args.list_presets:
+        preset_manager = get_preset_manager()
+        preset_manager.print_presets()
+        sys.exit(0)
+
     # 硬件检测
     if args.check_hardware:
         validate_hardware()
         sys.exit(0)
 
+    # 设置日志
+    log_path = None
+    if args.log is not None:
+        log_path = setup_logging(args.log, args.verbose, args.quiet)
+        logger = get_logger()
+        logger.info(f"SuperElite v{VERSION} ({get_git_hash()}) 启动")
+        if log_path and not args.quiet:
+            print(f"📝 日志文件: {log_path}")
+    elif args.quiet:
+        setup_logging(quiet=True)
+    elif args.verbose:
+        setup_logging(verbose=True)
+
     validate_hardware()
+
+    # 预设管理器
+    preset_manager = get_preset_manager()
+
+    # 加载预设配置
+    quality_weight = 0.4
+    aesthetic_weight = 0.6
+    thresholds = None
+    write_xmp = args.write_xmp
+    organize = args.organize
+
+    if args.preset:
+        preset = preset_manager.get_preset(args.preset)
+        if preset is None:
+            print(f"❌ 预设不存在: {args.preset}")
+            print("   使用 --list-presets 查看可用预设")
+            sys.exit(1)
+        
+        print(f"✅ 使用预设: {preset.name} ({preset.description})")
+        quality_weight = preset.quality_weight
+        aesthetic_weight = preset.aesthetic_weight
+        thresholds = preset.thresholds
+        write_xmp = write_xmp or preset.write_xmp
+        organize = organize or preset.organize
+
+    # 命令行参数覆盖预设
+    if args.quality_weight is not None:
+        quality_weight = args.quality_weight
+    if args.aesthetic_weight is not None:
+        aesthetic_weight = args.aesthetic_weight
 
     # 检查参数冲突
     if args.thresholds and args.auto_calibrate:
@@ -480,8 +544,10 @@ def main():
     # 设置自定义阈值 (仅当不使用 auto-calibrate 时)
     if args.thresholds:
         thresholds = parse_thresholds(args.thresholds)
+    
+    if thresholds and not args.auto_calibrate:
         set_thresholds(*thresholds)
-        print(f"✅ 使用自定义阈值: 4星≥{thresholds[0]}, 3星≥{thresholds[1]}, 2星≥{thresholds[2]}, 1星≥{thresholds[3]}")
+        print(f"✅ 使用阈值: 4星≥{thresholds[0]}, 3星≥{thresholds[1]}, 2星≥{thresholds[2]}, 1星≥{thresholds[3]}")
 
     # 交互式输入目录 (如果未提供 --dir)
     input_dir = args.dir
@@ -513,8 +579,8 @@ def main():
 
     # 初始化评分器
     scorer = get_one_align_scorer(
-        quality_weight=args.quality_weight,
-        aesthetic_weight=args.aesthetic_weight,
+        quality_weight=quality_weight,
+        aesthetic_weight=aesthetic_weight,
     )
     scorer.warmup()
 
@@ -553,7 +619,7 @@ def main():
         results = remap_ratings(results, final_thresholds)
         
         # 第五步: 写入 XMP (如果指定了 --write-xmp)
-        if args.write_xmp:
+        if write_xmp:
             print("\n📝 写入 XMP 元数据...")
             write_xmp_metadata(exif_writer, results)
         
@@ -563,10 +629,10 @@ def main():
     
     else:
         # 标准模式: 使用默认/自定义阈值，直接处理
-        results = process_batch(image_paths, scorer, exif_writer, write_xmp=args.write_xmp)
+        results = process_batch(image_paths, scorer, exif_writer, write_xmp=write_xmp)
 
     # 按星级分目录
-    if args.organize and args.output:
+    if organize and args.output:
         organize_by_rating(results, args.output)
 
     # 导出 CSV
@@ -582,6 +648,22 @@ def main():
 
     print(f"\n📊 统计摘要:")
     print(json.dumps(summary, indent=2, ensure_ascii=False))
+
+    # 保存预设
+    if args.save_preset:
+        final_thresholds = thresholds or DEFAULT_THRESHOLDS
+        preset = Preset(
+            name=args.save_preset,
+            description=f"用户自定义预设 ({args.save_preset})",
+            thresholds=final_thresholds,
+            quality_weight=quality_weight,
+            aesthetic_weight=aesthetic_weight,
+            write_xmp=write_xmp,
+            organize=organize,
+        )
+        if preset_manager.save_preset(preset):
+            print(f"\n✅ 预设已保存: {args.save_preset}")
+            print(f"   使用: --preset {args.save_preset}")
 
 
 if __name__ == "__main__":
