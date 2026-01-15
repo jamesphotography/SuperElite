@@ -222,7 +222,7 @@ class SuperEliteMainWindow(QMainWindow):
         version_inner.addWidget(version_label)
         
         # commit hash
-        hash_label = QLabel("5e78b22")
+        hash_label = QLabel("050ae93")
         hash_label.setStyleSheet(f"color: {COLORS['text_muted']}; font-size: 10px; font-family: {FONTS['mono']};")
         hash_label.setAlignment(Qt.AlignCenter)
         version_inner.addWidget(hash_label)
