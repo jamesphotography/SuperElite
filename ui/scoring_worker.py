@@ -43,6 +43,7 @@ class ScoringWorker(QThread):
     log_message = Signal(str, str)  # level, message
     finished_scoring = Signal(list, dict)  # results, summary
     request_threshold_confirmation = Signal(tuple, dict, dict)  # suggested_thresholds, counts, stats
+    calibration_completed = Signal(tuple)  # calibrated_thresholds - 自动校准完成后发送
     error = Signal(str)
     
     def __init__(self, parent=None):
@@ -279,6 +280,8 @@ class ScoringWorker(QThread):
                             result["rating"] = rating
                     
                     self.log_message.emit("success", f"✅ 自适应阈值: {t4:.1f} / {t3:.1f} / {t2:.1f} / {t1:.1f}")
+                    # 发送信号保存到用户自定义
+                    self.calibration_completed.emit(calibrated_thresholds)
             
             # 5. 写入 XMP (如果启用)
             if self.write_xmp and not self._should_stop:

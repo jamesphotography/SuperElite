@@ -401,13 +401,7 @@ class SuperEliteMainWindow(QMainWindow):
         
         # 预设下拉菜单
         self.preset_combo = QComboBox()
-        self.preset_combo.addItems([
-            "全自动 (20% 均分)",
-            "默认 (78 / 72 / 66 / 58)",
-            "严格 (85 / 80 / 75 / 70)",
-            "宽松 (70 / 60 / 50 / 40)",
-            "自定义..."
-        ])
+        self._update_preset_combo()  # 初始化预设选项
         self.preset_combo.setCurrentIndex(0)  # 默认选中全自动
         self.preset_combo.currentIndexChanged.connect(self._on_preset_changed)
         layout.addWidget(self.preset_combo, 1)
@@ -420,6 +414,68 @@ class SuperEliteMainWindow(QMainWindow):
         layout.addWidget(self.organize_checkbox)
         
         parent_layout.addLayout(layout)
+    
+    def _update_preset_combo(self):
+        """更新预设下拉菜单选项"""
+        current_index = self.preset_combo.currentIndex() if hasattr(self, 'preset_combo') and self.preset_combo.count() > 0 else 0
+        
+        self.preset_combo.blockSignals(True)
+        self.preset_combo.clear()
+        
+        # 获取用户自定义阈值
+        custom_thresholds = self._get_saved_custom_thresholds()
+        if custom_thresholds:
+            custom_text = f"自定义 ({custom_thresholds[0]:.0f}/{custom_thresholds[1]:.0f}/{custom_thresholds[2]:.0f}/{custom_thresholds[3]:.0f})"
+        else:
+            custom_text = "自定义..."
+        
+        self.preset_combo.addItems([
+            "全自动 (20% 均分)",
+            "固定阈值 (78/72/66/58)",
+            custom_text
+        ])
+        
+        self.preset_combo.setCurrentIndex(min(current_index, 2))
+        self.preset_combo.blockSignals(False)
+    
+    def _get_saved_custom_thresholds(self):
+        """获取保存的自定义阈值"""
+        try:
+            from pathlib import Path
+            import sys
+            backend_path = Path(__file__).parent.parent / "backend"
+            sys.path.insert(0, str(backend_path))
+            from preset_manager import get_preset_manager
+            
+            preset_manager = get_preset_manager()
+            user_preset = preset_manager.get_user_preset()
+            if user_preset:
+                return user_preset.thresholds
+        except:
+            pass
+        return None
+    
+    def _save_custom_thresholds(self, thresholds: tuple):
+        """保存自定义阈值"""
+        try:
+            from pathlib import Path
+            import sys
+            backend_path = Path(__file__).parent.parent / "backend"
+            sys.path.insert(0, str(backend_path))
+            from preset_manager import get_preset_manager
+            
+            preset_manager = get_preset_manager()
+            preset_manager.save_user_preset(
+                thresholds=thresholds,
+                quality_weight=self._quality_weight,
+                aesthetic_weight=self._aesthetic_weight,
+            )
+            # 更新下拉菜单显示
+            self._update_preset_combo()
+            return True
+        except Exception as e:
+            self._log("warning", f"⚠️ 保存自定义阈值失败: {e}")
+            return False
     
     # ==================== 权重调整区域 ====================
     def _create_weight_section(self, parent_layout):
@@ -562,51 +618,34 @@ class SuperEliteMainWindow(QMainWindow):
     
     def _on_preset_changed(self, index):
         """预设选择变化"""
-        if index == 4:  # 自定义 (最后一个)
-            # 打开设置对话框
-            self._show_settings()
-            # 恢复到上一次的选择
-            self.preset_combo.blockSignals(True)
-            self.preset_combo.setCurrentIndex(self._last_preset_index)
-            self.preset_combo.blockSignals(False)
-        elif index == 0:  # auto - 全自动
+        if index == 0:  # 全自动
             self._last_preset_index = index
-            # 启用自动校准
             self._auto_calibrate = True
-            # 不需要加载预设，评分后自动计算阈值
             self._log("info", "🤖 已启用全自动模式")
-            self._log("default", "   将按 20% 均分自动分配星级")
-        else:
+            self._log("default", "   将按 20% 均分自动分配星级，完成后保存到自定义")
+        
+        elif index == 1:  # 固定阈值
             self._last_preset_index = index
             self._auto_calibrate = False
-            # 加载预设
-            preset_names = ["default", "strict", "relaxed"]
-            preset_name = preset_names[index - 1]  # 跳过auto
-            
-            from pathlib import Path
-            import sys
-            backend_path = Path(__file__).parent.parent / "backend"
-            sys.path.insert(0, str(backend_path))
-            from preset_manager import get_preset_manager
-            
-            preset_manager = get_preset_manager()
-            preset = preset_manager.get_preset(preset_name)
-            
-            if preset:
-                # 更新阈值
-                self._thresholds = preset.thresholds
-                # 更新权重
-                self._quality_weight = preset.quality_weight
-                self._aesthetic_weight = preset.aesthetic_weight
-                # 更新权重滑块
-                aesthetic_pct = int(preset.aesthetic_weight * 100)
-                self.weight_slider.blockSignals(True)
-                self.weight_slider.setValue(aesthetic_pct)
-                self.weight_slider.blockSignals(False)
-                self._on_weight_changed(aesthetic_pct)  # 更新显示
-                
-                self._log("info", f"🛠️  已切换到 {preset_name} 预设")
-                self._log("default", f"   阈值: {preset.thresholds[0]}/{preset.thresholds[1]}/{preset.thresholds[2]}/{preset.thresholds[3]}")
+            self._thresholds = (78.0, 72.0, 66.0, 58.0)
+            self._log("info", "🛠️  已切换到固定阈值")
+            self._log("default", f"   阈值: 78/72/66/58")
+        
+        elif index == 2:  # 自定义
+            custom_thresholds = self._get_saved_custom_thresholds()
+            if custom_thresholds:
+                self._last_preset_index = index
+                self._auto_calibrate = False
+                self._thresholds = custom_thresholds
+                self._log("info", "🛠️  已切换到自定义阈值")
+                self._log("default", f"   阈值: {custom_thresholds[0]:.0f}/{custom_thresholds[1]:.0f}/{custom_thresholds[2]:.0f}/{custom_thresholds[3]:.0f}")
+            else:
+                # 没有保存的自定义阈值，打开设置对话框
+                self._show_settings()
+                # 恢复到上一次的选择
+                self.preset_combo.blockSignals(True)
+                self.preset_combo.setCurrentIndex(self._last_preset_index)
+                self.preset_combo.blockSignals(False)
     
     def _on_weight_changed(self, value):
         """权重滑块变化"""
@@ -875,6 +914,7 @@ class SuperEliteMainWindow(QMainWindow):
         self._worker.progress.connect(self._on_progress)
         self._worker.log_message.connect(self._on_log_message)
         self._worker.finished_scoring.connect(self._on_scoring_finished)
+        self._worker.calibration_completed.connect(self._on_calibration_completed)
         self._worker.error.connect(self._on_error)
     
     def _start_model_preload(self):
@@ -953,6 +993,12 @@ class SuperEliteMainWindow(QMainWindow):
     def _on_log_message(self, level: str, message: str):
         """日志消息"""
         self._log(level, message)
+    
+    def _on_calibration_completed(self, thresholds: tuple):
+        """自动校准完成，保存阈值到用户自定义"""
+        self._save_custom_thresholds(thresholds)
+        self._thresholds = thresholds
+        self._log("info", "💾 已保存校准阈值到「自定义」预设")
     
     def _on_scoring_finished(self, results: list, summary: dict):
         """评分完成"""
