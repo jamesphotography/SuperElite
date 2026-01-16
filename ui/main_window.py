@@ -113,15 +113,12 @@ class SuperEliteMainWindow(QMainWindow):
         self._model_mode = "basic"  # 模型模式: "basic" 或 "advanced"
 
         
-        # 系统检查和模型下载
+        # 系统检查
         if not self._check_system_requirements():
             return  # 会在 show 时显示错误
         
-        if not self._check_and_download_model():
-            return  # 用户取消了下载
-        
-        # 启动时预加载模型
-        self._start_model_preload()
+        # 不再强制下载大模型，用户可直接使用爱好者水平
+        # 模型预加载将在首次评分时按需进行
     
     def _check_system_requirements(self) -> bool:
         """检查系统要求"""
@@ -439,8 +436,8 @@ class SuperEliteMainWindow(QMainWindow):
         has_advanced = self._is_advanced_model_available()
         
         # 添加选项
-        self.model_combo.addItem("⚡ 爱好者 (NIMA + TOPIQ, 内置)")
-        self.model_combo.addItem("🚀 大师 (One-Align 15GB)" + ("" if has_advanced else " [未下载]"))
+        self.model_combo.addItem("爱好者水平 (500MB, 内置)")
+        self.model_combo.addItem("詹姆斯水平 (15GB)" + ("" if has_advanced else " [未下载]"))
         
         # 默认选择：如果高级模型可用，默认使用大师模式
         if has_advanced:
@@ -454,20 +451,20 @@ class SuperEliteMainWindow(QMainWindow):
     
     def _on_model_changed(self, index):
         """模型选择变化"""
-        if index == 0:  # 爱好者
+        if index == 0:  # 爱好者水平
             self._model_mode = "basic"
-            self._log("info", "⚡ 已切换到 爱好者 模式")
-            self._log("default", "   使用内置 NIMA + TOPIQ 模型，速度快")
-        else:  # 大师
+            self._log("info", "已切换到 爱好者水平")
+            self._log("default", "   使用内置评分模型，速度快")
+        else:  # 詹姆斯水平
             if not self._is_advanced_model_available():
                 # 高级模型未下载，提示下载
                 StyledMessageBox.information(
                     self,
                     "需要下载模型",
-                    "🚀 大师模式需要下载 One-Align 模型 (~15GB)。\n\n"
+                    "詹姆斯水平需要下载 15GB 模型。\n\n"
                     "点击「下载高级模型」按钮开始下载。"
                 )
-                # 切回爱好者模式
+                # 切回爱好者水平
                 self.model_combo.blockSignals(True)
                 self.model_combo.setCurrentIndex(0)
                 self.model_combo.blockSignals(False)
@@ -475,8 +472,8 @@ class SuperEliteMainWindow(QMainWindow):
                 return
             
             self._model_mode = "advanced"
-            self._log("info", "🚀 已切换到 大师 模式")
-            self._log("default", "   使用 One-Align 模型，质量+美学双维度评估")
+            self._log("info", "已切换到 詹姆斯水平")
+            self._log("default", "   使用高级评分模型，质量+美学双维度评估")
     
     def _on_download_advanced_model(self):
         """下载高级模型"""

@@ -158,10 +158,11 @@ class ScoringWorker(QThread):
             # 步骤 3: 加载 AI 模型
             self.log_message.emit("info", "")
             if self.model_mode == "advanced":
-                self.log_message.emit("info", "🚀 [步骤 3/4] 加载 大师模型 (One-Align)...")
+                self.log_message.emit("info", "[步骤 3/4] 加载 詹姆斯水平 评分模型...")
             else:
-                self.log_message.emit("info", "⚡ [步骤 3/4] 加载 爱好者模型 (NIMA + TOPIQ)...")
+                self.log_message.emit("info", "[步骤 3/4] 加载 爱好者水平 评分模型...")
             self.started_loading.emit()
+
             
             # 根据模式选择评分器
             if self.model_mode == "advanced":
