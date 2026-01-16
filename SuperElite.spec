@@ -22,17 +22,23 @@ sp = site.getsitepackages()
 site_packages = sp[1] if len(sp) > 1 else sp[0]
 
 # =====================================================
-# 数据文件配置 (不包含模型!)
+# 数据文件配置 (包含基础模型 NIMA + TOPIQ)
 # =====================================================
 all_datas = [
     # 图片资源
     (os.path.join(base_path, 'img'), 'img'),
 ]
 
+# 基础模型 (NIMA + TOPIQ) - 约 500MB
+models_path = os.path.join(base_path, 'models')
+if os.path.exists(models_path):
+    all_datas.append((models_path, 'models'))
+
 # ExifTool bundle (如果存在)
 exiftool_bundle_path = os.path.join(base_path, 'exiftool_bundle')
 if os.path.exists(exiftool_bundle_path):
     all_datas.append((exiftool_bundle_path, 'exiftool_bundle'))
+
 
 # 收集依赖包的数据文件
 try:
@@ -109,6 +115,9 @@ a = Analysis(
         # 后端模块
         'backend',
         'backend.one_align_scorer',
+        'backend.pyiqa_scorer',
+        'backend.nima_model',
+        'backend.topiq_model',
         'backend.exif_writer',
         'backend.model_downloader',
         'backend.region_detector',
@@ -117,6 +126,13 @@ a = Analysis(
         'backend.manifest_manager',
         'backend.preset_manager',
         'backend.photo_critic',
+        
+        # timm (骨干网络)
+        'timm',
+        'timm.models',
+        'timm.models.resnet',
+        'timm.models.inception_resnet_v2',
+
         
         # UI 模块
         'ui',

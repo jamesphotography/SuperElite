@@ -49,3 +49,7 @@ output/
 
 # Superpowers submodule
 .agent/skills/superpowers/.git/
+# 模型权重文件 (太大不上传 Git)
+models/*.pth
+models/.cache/
+
