@@ -288,8 +288,7 @@ class SuperEliteMainWindow(QMainWindow):
         # 各区域
         self._create_header_section(main_layout)
         self._create_directory_section(main_layout)
-        self._create_model_section(main_layout)  # 新：模型选择（爱好者/大师）
-        self._create_preset_section(main_layout)  # 预设下拉菜单
+        self._create_preset_section(main_layout)  # 模型选择 + 评分标准 (同一行)
         self._create_weight_section(main_layout)  # 权重滑块
         self._create_log_section(main_layout)
         self._create_progress_section(main_layout)
@@ -491,28 +490,49 @@ class SuperEliteMainWindow(QMainWindow):
             endpoint = dialog.get_selected_endpoint()
             self._start_model_download(endpoint)
 
-    # ==================== 预设选择区域 ====================
+    # ==================== 模型 + 预设选择区域 (同一行) ====================
     def _create_preset_section(self, parent_layout):
-        """创建预设选择区域 - 无标题"""
+        """创建模型选择 + 评分标准区域 - 合并在同一行"""
         layout = QHBoxLayout()
         layout.setSpacing(12)
         
-        # 标签
-        label = QLabel("评分标准:")
-        label.setStyleSheet(f"color: {COLORS['text_secondary']}; font-size: 14px;")
-        label.setFixedWidth(90)
-        layout.addWidget(label)
+        # === 评分模型 ===
+        model_label = QLabel("评分模型:")
+        model_label.setStyleSheet(f"color: {COLORS['text_secondary']}; font-size: 14px;")
+        layout.addWidget(model_label)
         
-        # 预设下拉菜单
+        self.model_combo = QComboBox()
+        self._update_model_combo()
+        self.model_combo.currentIndexChanged.connect(self._on_model_changed)
+        self.model_combo.setMinimumWidth(180)
+        layout.addWidget(self.model_combo)
+        
+        # 模型下载按钮
+        self.download_model_btn = QPushButton("下载")
+        self.download_model_btn.setObjectName("secondary")
+        self.download_model_btn.setFixedWidth(50)
+        self.download_model_btn.clicked.connect(self._on_download_advanced_model)
+        self.download_model_btn.setVisible(not self._is_advanced_model_available())
+        layout.addWidget(self.download_model_btn)
+        
+        # 分隔
+        layout.addSpacing(20)
+        
+        # === 评分标准 ===
+        preset_label = QLabel("评分标准:")
+        preset_label.setStyleSheet(f"color: {COLORS['text_secondary']}; font-size: 14px;")
+        layout.addWidget(preset_label)
+        
         self.preset_combo = QComboBox()
-        self._update_preset_combo()  # 初始化预设选项
-        self.preset_combo.setCurrentIndex(0)  # 默认选中全自动
+        self._update_preset_combo()
+        self.preset_combo.setCurrentIndex(0)
         self.preset_combo.currentIndexChanged.connect(self._on_preset_changed)
-        layout.addWidget(self.preset_combo, 1)
+        self.preset_combo.setMinimumWidth(160)
+        layout.addWidget(self.preset_combo)
         
         # 分目录开关
         self.organize_checkbox = QCheckBox("分目录")
-        self.organize_checkbox.setChecked(True)  # 默认启用
+        self.organize_checkbox.setChecked(True)
         self.organize_checkbox.setToolTip("按星级复制文件到子目录 (1星、2星...)")
         self.organize_checkbox.stateChanged.connect(self._on_organize_changed)
         layout.addWidget(self.organize_checkbox)
