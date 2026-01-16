@@ -1,11 +1,20 @@
 """
 EXIF 元数据写入模块
 从 SuperPicky 的 exiftool_manager.py 简化而来
+支持 macOS 和 Windows 双平台
 """
 
 import os
 import subprocess
 import shutil
+import sys
+
+# 跨平台常量
+IS_WINDOWS = sys.platform.startswith('win')
+IS_MACOS = sys.platform == 'darwin'
+
+# Windows 上隐藏控制台窗口的标志
+SUBPROCESS_FLAGS = subprocess.CREATE_NO_WINDOW if IS_WINDOWS else 0
 
 
 class ExifWriter:
@@ -30,8 +39,40 @@ class ExifWriter:
         print(f"[EXIF] 使用 exiftool: {self.exiftool_path}")
 
     def _find_exiftool(self) -> str:
-        """在系统 PATH 中查找 exiftool"""
-        return shutil.which('exiftool')
+        """
+        在系统 PATH 或打包目录中查找 exiftool
+        
+        查找顺序：
+        1. PyInstaller 打包目录 (_MEIPASS/exiftool_bundle/)
+        2. 系统 PATH
+        3. 项目目录下的 exiftool_bundle/
+        """
+        # Windows 使用 .exe 后缀
+        exe_name = 'exiftool.exe' if IS_WINDOWS else 'exiftool'
+        
+        # 1. PyInstaller 打包环境
+        if hasattr(sys, '_MEIPASS'):
+            bundle_path = os.path.join(sys._MEIPASS, 'exiftool_bundle', exe_name)
+            if os.path.exists(bundle_path):
+                return bundle_path
+            # 兼容不带后缀
+            bundle_path_no_ext = os.path.join(sys._MEIPASS, 'exiftool_bundle', 'exiftool')
+            if os.path.exists(bundle_path_no_ext):
+                return bundle_path_no_ext
+        
+        # 2. 系统 PATH (开发环境首选)
+        system_exiftool = shutil.which('exiftool')
+        if system_exiftool:
+            return system_exiftool
+        
+        # 3. 项目目录下的 exiftool_bundle (开发环境备选)
+        project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        bundle_path = os.path.join(project_root, 'exiftool_bundle', exe_name)
+        if os.path.exists(bundle_path):
+            return bundle_path
+        
+        return None
+
 
     def write_align_score(self, raw_file_path: str, align_score: float) -> bool:
         """
@@ -72,7 +113,8 @@ class ExifWriter:
                 cmd,
                 capture_output=True,
                 text=True,
-                timeout=30
+                timeout=30,
+                creationflags=SUBPROCESS_FLAGS
             )
 
             # 对于 DJI DNG 文件，忽略 minor 错误（returncode 仍然可能是 0）
@@ -131,7 +173,8 @@ class ExifWriter:
                 cmd,
                 capture_output=True,
                 text=True,
-                timeout=30
+                timeout=30,
+                creationflags=SUBPROCESS_FLAGS
             )
 
             if result.returncode != 0:
@@ -199,7 +242,8 @@ class ExifWriter:
                 cmd,
                 capture_output=True,
                 text=True,
-                timeout=30
+                timeout=30,
+                creationflags=SUBPROCESS_FLAGS
             )
 
             if result.returncode != 0:
@@ -253,7 +297,8 @@ class ExifWriter:
                 cmd,
                 capture_output=True,
                 text=True,
-                timeout=30
+                timeout=30,
+                creationflags=SUBPROCESS_FLAGS
             )
 
             if result.returncode != 0:
@@ -306,7 +351,8 @@ class ExifWriter:
                 cmd,
                 capture_output=True,
                 text=True,
-                timeout=30
+                timeout=30,
+                creationflags=SUBPROCESS_FLAGS
             )
 
             if result.returncode != 0:
@@ -351,7 +397,8 @@ class ExifWriter:
                 cmd,
                 capture_output=True,
                 text=True,
-                timeout=30
+                timeout=30,
+                creationflags=SUBPROCESS_FLAGS
             )
 
             if result.returncode != 0:
@@ -406,7 +453,8 @@ class ExifWriter:
                 cmd,
                 capture_output=True,
                 text=True,
-                timeout=30
+                timeout=30,
+                creationflags=SUBPROCESS_FLAGS
             )
 
             if result.returncode != 0:
@@ -501,7 +549,8 @@ class ExifWriter:
                 cmd,
                 capture_output=True,
                 text=True,
-                timeout=30
+                timeout=30,
+                creationflags=SUBPROCESS_FLAGS
             )
 
             if result.returncode != 0:
@@ -549,7 +598,8 @@ class ExifWriter:
                 cmd,
                 capture_output=True,
                 text=True,
-                timeout=30
+                timeout=30,
+                creationflags=SUBPROCESS_FLAGS
             )
 
             if result.returncode != 0:
@@ -577,7 +627,8 @@ class ExifWriter:
                 [self.exiftool_path, '-ver'],
                 capture_output=True,
                 text=True,
-                timeout=10
+                timeout=10,
+                creationflags=SUBPROCESS_FLAGS
             )
 
             if result.returncode == 0:
