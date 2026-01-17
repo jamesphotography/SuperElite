@@ -31,6 +31,10 @@ class ModelPreloadWorker(QThread):
     preload_started = Signal()  # 避免与 QThread.started 冲突
     finished = Signal(bool)  # success
     
+    def __init__(self, parent=None, model_mode: str = "basic"):
+        super().__init__(parent)
+        self.model_mode = model_mode
+    
     def run(self):
         """预加载模型"""
         try:
@@ -40,11 +44,16 @@ class ModelPreloadWorker(QThread):
             backend_path = Path(__file__).parent.parent / "backend"
             sys.path.insert(0, str(backend_path))
             
-            from one_align_scorer import get_one_align_scorer
-            
-            # 获取评分器（会触发模型加载）
-            scorer = get_one_align_scorer()
-            scorer.warmup()  # 预热
+            if self.model_mode == "advanced":
+                # 预加载 One-Align (詹姆斯水平)
+                from one_align_scorer import get_one_align_scorer
+                scorer = get_one_align_scorer()
+                scorer.warmup()
+            else:
+                # 预加载 PyIQA (爱好者水平)
+                from pyiqa_scorer import get_pyiqa_scorer
+                scorer = get_pyiqa_scorer()
+                scorer.warmup()
             
             self.finished.emit(True)
         except Exception as e:
@@ -100,6 +109,7 @@ class SuperEliteMainWindow(QMainWindow):
         # 状态
         self._is_processing = False
         self._model_loaded = False  # 模型是否已加载
+        self._loaded_model_mode = None  # 已加载的模型类型: None / "basic" / "advanced"
         self._is_downloading = False  # 是否正在下载模型
         
         # 配置（从设置对话框传入）
@@ -110,7 +120,7 @@ class SuperEliteMainWindow(QMainWindow):
         self._write_xmp = True
         self._organize = True  # 默认启用分目录
         self._last_preset_index = 0  # 预设下拉菜单选中索引 (0=auto)
-        self._model_mode = "basic"  # 模型模式: "basic" 或 "advanced"
+        self._model_mode = "basic"  # 用户选择的模型模式: "basic" 或 "advanced"
 
         
         # 系统检查
@@ -119,6 +129,9 @@ class SuperEliteMainWindow(QMainWindow):
         
         # 不再强制下载大模型，用户可直接使用爱好者水平
         # 模型预加载将在首次评分时按需进行
+        
+        # 后台检查更新
+        self._check_for_updates()
     
     def _check_system_requirements(self) -> bool:
         """检查系统要求"""
@@ -250,9 +263,30 @@ class SuperEliteMainWindow(QMainWindow):
         # 应用全局样式
         self.setStyleSheet(GLOBAL_STYLE)
         
-        # 设置应用图标
-        icon_path = os.path.join(os.path.dirname(__file__), "..", "img", "icon.png")
-        if os.path.exists(icon_path):
+        # 设置应用图标 (兼容 PyInstaller 打包和开发环境)
+        icon_path = None
+        possible_paths = []
+        
+        if hasattr(sys, '_MEIPASS'):
+            # PyInstaller 打包后 - 尝试多个可能的路径
+            possible_paths = [
+                os.path.join(sys._MEIPASS, "img", "icon.png"),
+                os.path.join(os.path.dirname(sys.executable), "..", "Resources", "img", "icon.png"),
+                os.path.join(os.path.dirname(sys.executable), "..", "Frameworks", "img", "icon.png"),
+            ]
+        else:
+            # 开发环境路径
+            possible_paths = [
+                os.path.join(os.path.dirname(os.path.dirname(__file__)), "img", "icon.png"),
+            ]
+        
+        for path in possible_paths:
+            normalized_path = os.path.normpath(path)
+            if os.path.exists(normalized_path):
+                icon_path = normalized_path
+                break
+        
+        if icon_path:
             self.setWindowIcon(QIcon(icon_path))
 
     def _setup_menu(self):
@@ -269,6 +303,12 @@ class SuperEliteMainWindow(QMainWindow):
         
         # 帮助菜单
         help_menu = menubar.addMenu("帮助")
+        
+        check_update_action = QAction("检查更新...", self)
+        check_update_action.triggered.connect(self._manual_check_for_updates)
+        help_menu.addAction(check_update_action)
+        
+        help_menu.addSeparator()
         
         about_action = QAction("关于 SuperElite", self)
         about_action.triggered.connect(self._show_about)
@@ -303,9 +343,26 @@ class SuperEliteMainWindow(QMainWindow):
         header_layout.setContentsMargins(0, 0, 0, 0)
         header_layout.setSpacing(16)
         
-        # 应用图标
-        icon_path = os.path.join(os.path.dirname(__file__), "..", "img", "icon.png")
-        if os.path.exists(icon_path):
+        # 应用图标 (兼容 PyInstaller 打包和开发环境)
+        icon_path = None
+        if hasattr(sys, '_MEIPASS'):
+            possible_paths = [
+                os.path.join(sys._MEIPASS, "img", "icon.png"),
+                os.path.join(os.path.dirname(sys.executable), "..", "Resources", "img", "icon.png"),
+                os.path.join(os.path.dirname(sys.executable), "..", "Frameworks", "img", "icon.png"),
+            ]
+        else:
+            possible_paths = [
+                os.path.join(os.path.dirname(__file__), "..", "img", "icon.png"),
+            ]
+        
+        for path in possible_paths:
+            normalized = os.path.normpath(path)
+            if os.path.exists(normalized):
+                icon_path = normalized
+                break
+        
+        if icon_path:
             from PySide6.QtGui import QPixmap
             icon_label = QLabel()
             pixmap = QPixmap(icon_path)
@@ -449,7 +506,9 @@ class SuperEliteMainWindow(QMainWindow):
         self.model_combo.blockSignals(False)
     
     def _on_model_changed(self, index):
-        """模型选择变化"""
+        """模型选择变化 - 切换时立即开始后台加载新模型"""
+        old_mode = self._model_mode
+        
         if index == 0:  # 爱好者水平
             self._model_mode = "basic"
             self._log("info", "已切换到 爱好者水平")
@@ -473,6 +532,27 @@ class SuperEliteMainWindow(QMainWindow):
             self._model_mode = "advanced"
             self._log("info", "已切换到 詹姆斯水平")
             self._log("default", "   使用高级评分模型，质量+美学双维度评估")
+        
+        # 懒加载：如果切换到不同模型且当前没有加载对应模型，立即开始后台加载
+        if self._model_mode != self._loaded_model_mode:
+            self._trigger_lazy_load(self._model_mode)
+    
+    def _trigger_lazy_load(self, model_mode: str):
+        """立即开始后台加载指定模型"""
+        # 如果正在加载中，不重复触发
+        if hasattr(self, '_preload_worker') and self._preload_worker.isRunning():
+            return
+        
+        self._log("info", f"🔄 后台加载模型中...")
+        self._model_loaded = False
+        self.start_btn.setEnabled(False)
+        self.reset_btn.setEnabled(False)
+        
+        # 启动后台加载
+        self._preload_worker = ModelPreloadWorker(self, model_mode=model_mode)
+        self._preload_worker.preload_started.connect(self._on_preload_started)
+        self._preload_worker.finished.connect(lambda success: self._on_preload_finished(success, model_mode))
+        self._preload_worker.start()
     
     def _on_download_advanced_model(self):
         """下载高级模型"""
@@ -1045,9 +1125,21 @@ class SuperEliteMainWindow(QMainWindow):
     
     def _start_model_preload(self):
         """启动时预加载模型"""
-        self._preload_worker = ModelPreloadWorker(self)
+        # 根据高级模型是否可用决定预加载哪个模型
+        if self._is_advanced_model_available():
+            model_mode = "advanced"
+            self._model_mode = "advanced"
+            # 同步更新下拉菜单
+            self.model_combo.blockSignals(True)
+            self.model_combo.setCurrentIndex(1)
+            self.model_combo.blockSignals(False)
+        else:
+            model_mode = "basic"
+            self._model_mode = "basic"
+        
+        self._preload_worker = ModelPreloadWorker(self, model_mode=model_mode)
         self._preload_worker.preload_started.connect(self._on_preload_started)
-        self._preload_worker.finished.connect(self._on_preload_finished)
+        self._preload_worker.finished.connect(lambda success: self._on_preload_finished(success, model_mode))
         self._preload_worker.start()
     
     def _on_preload_started(self):
@@ -1057,20 +1149,22 @@ class SuperEliteMainWindow(QMainWindow):
         self.progress_percent.setText("⏳")
         self._log("info", "🔄 正在加载 选片模型...")
     
-    def _on_preload_finished(self, success: bool):
+    def _on_preload_finished(self, success: bool, model_mode: str = None):
         """预加载完成"""
-        self._model_loaded = success
         self.progress_bar.setRange(0, 100)
         self.progress_bar.setValue(0)
         self.progress_percent.setText("0%")
         
         if success:
+            self._model_loaded = True
+            self._loaded_model_mode = model_mode or self._model_mode  # 记录已加载的模型类型
             self._set_status("就绪", "success")
             self._log("success", "✅ 选片模型 加载完成")
             # 启用按钮
             self.start_btn.setEnabled(True)
             self.reset_btn.setEnabled(True)
         else:
+            self._model_loaded = False
             self._set_status("模型加载失败", "error")
             self._log("error", "❌ 选片模型 加载失败")
     
@@ -1467,3 +1561,75 @@ class SuperEliteMainWindow(QMainWindow):
             self._worker.stop()
             self._worker.wait(2000)  # 等待线程结束
         event.accept()
+    
+    # ==================== 版本更新检测 ====================
+    
+    def _check_for_updates(self):
+        """后台检查更新"""
+        try:
+            from update_checker import UpdateChecker
+            
+            self._update_checker = UpdateChecker(parent=self)
+            self._update_checker.update_available.connect(self._on_update_available)
+            # 不显示"无更新"或"检查失败"的提示，静默处理
+            self._update_checker.start()
+        except ImportError:
+            pass  # 如果模块不存在，静默忽略
+    
+    def _on_update_available(self, version: str, url: str, notes: str):
+        """发现新版本时显示提示"""
+        import webbrowser
+        
+        # 格式化更新说明
+        notes_preview = notes[:200] + "..." if len(notes) > 200 else notes
+        
+        message = (
+            f"发现新版本 {version}！\n\n"
+            f"当前版本: V1.0.0\n"
+            f"最新版本: {version}\n\n"
+            f"是否打开下载页面？"
+        )
+        
+        result = StyledMessageBox.question(
+            self,
+            "发现新版本",
+            message
+        )
+        
+        if result == StyledMessageBox.Yes:
+            webbrowser.open(url)
+    
+    def _manual_check_for_updates(self):
+        """手动检查更新（从帮助菜单触发）"""
+        try:
+            from update_checker import UpdateChecker
+            
+            self._log("info", "🔍 正在检查更新...")
+            
+            self._manual_update_checker = UpdateChecker(parent=self)
+            self._manual_update_checker.update_available.connect(self._on_update_available)
+            self._manual_update_checker.no_update.connect(self._on_no_update)
+            self._manual_update_checker.check_failed.connect(self._on_update_check_failed)
+            self._manual_update_checker.start()
+        except ImportError:
+            StyledMessageBox.warning(self, "检查更新", "更新检测模块不可用")
+    
+    def _on_no_update(self):
+        """当前已是最新版本"""
+        self._log("success", "✅ 当前已是最新版本")
+        StyledMessageBox.information(
+            self,
+            "检查更新",
+            "当前已是最新版本 V1.0.0"
+        )
+    
+    def _on_update_check_failed(self, error: str):
+        """检查更新失败（网络问题等）- 静默处理"""
+        self._log("muted", f"检查更新跳过: {error}")
+        # 手动检查时显示提示
+        if hasattr(self, '_manual_update_checker'):
+            StyledMessageBox.warning(
+                self,
+                "检查更新",
+                f"无法连接到更新服务器\n\n{error}"
+            )

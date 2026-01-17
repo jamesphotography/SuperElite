@@ -147,21 +147,29 @@ class PyIQAScorer:
         image = Image.open(image_path).convert("RGB")
         
         # 转换为张量
+        # 使用固定正方形尺寸 384x384，避免 MPS 上的 adaptive pooling 错误
         import torchvision.transforms as T
         transform = T.Compose([
-            T.Resize(384),  # 统一尺寸
+            T.Resize((384, 384)),  # 固定正方形尺寸
             T.ToTensor(),
         ])
         img_tensor = transform(image).unsqueeze(0).to(self.device)
 
-        with torch.inference_mode():
-            # NIMA 美学评分 (1-10 → 0-100)
-            aesthetic_raw = self.nima_model.predict_score(img_tensor).item()
-            aesthetic = aesthetic_raw * 10  # 转换为 0-100
-
-            # TOPIQ 质量评分 (1-10 → 0-100)
-            quality_raw = self.topiq_model(img_tensor, return_mos=True, return_dist=False).item()
-            quality = quality_raw * 10  # 转换为 0-100
+        # 尝试在主设备上评分，如果 MPS 遇到 adaptive pool 错误则回退到 CPU
+        try:
+            aesthetic, quality = self._run_inference(img_tensor)
+        except RuntimeError as e:
+            if "Adaptive pool MPS" in str(e) or "adaptive" in str(e).lower():
+                # MPS adaptive pooling 不支持此尺寸，回退到 CPU
+                img_tensor_cpu = img_tensor.cpu()
+                self.nima_model.cpu()
+                self.topiq_model.cpu()
+                aesthetic, quality = self._run_inference(img_tensor_cpu)
+                # 恢复到原设备
+                self.nima_model.to(self.device)
+                self.topiq_model.to(self.device)
+            else:
+                raise
 
         # 综合评分 (已经是 0-100 分制)
         total = quality * self.quality_weight + aesthetic * self.aesthetic_weight
@@ -177,6 +185,45 @@ class PyIQAScorer:
             "pick_flag": pick_flag,
             "color_label": color_label,
         }
+    
+    def _run_inference(self, img_tensor: torch.Tensor) -> tuple:
+        """在指定设备上运行推理"""
+        with torch.inference_mode():
+            # NIMA 美学评分 (1-10 → 0-100)
+            aesthetic_raw = self.nima_model.predict_score(img_tensor).item()
+            aesthetic = aesthetic_raw * 10  # 转换为 0-100
+
+            # TOPIQ 质量评分 (1-10 → 0-100)
+            quality_raw = self.topiq_model(img_tensor, return_mos=True, return_dist=False).item()
+            quality = quality_raw * 10  # 转换为 0-100
+        
+        # 归一化分数，使其与 One-Align 的分数范围一致
+        # NIMA+TOPIQ 原始范围约 40-70，One-Align 范围约 65-99
+        # 使用线性映射: new = (old - old_min) / (old_max - old_min) * (new_max - new_min) + new_min
+        aesthetic = self._normalize_score(aesthetic)
+        quality = self._normalize_score(quality)
+        
+        return aesthetic, quality
+    
+    @staticmethod
+    def _normalize_score(score: float) -> float:
+        """
+        归一化分数，使 PyIQA 的分数范围与 One-Align 一致
+        
+        原始范围: 约 40-70 (NIMA+TOPIQ 典型输出)
+        目标范围: 约 55-99 (与 One-Align 对齐，扩大差距)
+        """
+        old_min, old_max = 40.0, 70.0  # PyIQA 典型输出范围
+        new_min, new_max = 55.0, 99.0  # 目标范围 (扩大)
+        
+        # 先裁剪到预期范围
+        score = max(old_min, min(old_max, score))
+        
+        # 线性映射
+        normalized = (score - old_min) / (old_max - old_min) * (new_max - new_min) + new_min
+        
+        return normalized
+
 
     @staticmethod
     def _map_to_rating(total_score: float) -> Tuple[int, str, str]:

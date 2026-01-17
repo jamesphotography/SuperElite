@@ -159,6 +159,13 @@ a = Analysis(
         # 不需要的大型包
         'matplotlib',
         'scipy',
+        # 间接依赖，代码中未使用 (节省 ~300MB)
+        'numba',
+        'llvmlite',
+        'pyarrow',
+        'cv2',
+        'opencv',
+        'opencv-python',
     ],
     noarchive=False,
     optimize=0,

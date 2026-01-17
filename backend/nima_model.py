@@ -66,9 +66,8 @@ class NIMA(nn.Module):
     
     def preprocess(self, x: torch.Tensor) -> torch.Tensor:
         """预处理输入图像"""
-        # Resize 和 Center Crop 到 299x299
-        x = T.functional.resize(x, self.input_size)
-        x = T.functional.center_crop(x, self.input_size)
+        # 直接 Resize 到正方形 299x299（避免 MPS 上 adaptive pooling 的尺寸问题）
+        x = T.functional.resize(x, (self.input_size, self.input_size))
         # ImageNet 归一化
         x = (x - self.default_mean.to(x.device)) / self.default_std.to(x.device)
         return x
